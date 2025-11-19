@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Dict, List, Optional
+import os
 
 from fastapi import FastAPI, HTTPException, Query, status
 
@@ -22,6 +23,8 @@ app = FastAPI(
         "Supports user registration, retrieval, updates, and soft deletion."
     ),
 )
+
+port = int(os.environ.get("FASTAPIPORT", 8001))
 
 # In-memory store (same pattern as your Books & Authors code)
 users: Dict[int, UserRead] = {}
@@ -153,3 +156,9 @@ def delete_user(user_id: int):
 @app.get("/")
 def root():
     return {"message": "Welcome to the User Service. See /docs for Swagger UI."}
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)

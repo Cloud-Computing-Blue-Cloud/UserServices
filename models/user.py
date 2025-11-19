@@ -1,15 +1,3 @@
-# CREATE TABLE users (
-#     user_id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-#     first_name VARCHAR(100) NOT NULL,
-#     last_name VARCHAR(100),
-#     email VARCHAR(255) NOT NULL UNIQUE,
-#     password_hash VARCHAR(255) NOT NULL,
-#     is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
-#     deleted_at TIMESTAMP NULL,
-#     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-#     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-# );
-
 from __future__ import annotations
 
 from enum import Enum
