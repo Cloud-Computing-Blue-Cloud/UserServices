@@ -31,7 +31,8 @@ app = FastAPI(
     ),
 )
 
-port = int(os.environ.get("FASTAPIPORT", 5004))
+# Cloud Run uses PORT, fallback to FASTAPIPORT for local development
+port = int(os.environ.get("PORT", os.environ.get("FASTAPIPORT", 5004)))
 
 # In-memory store (same pattern as your Books & Authors code)
 users: Dict[int, UserRead] = {}
