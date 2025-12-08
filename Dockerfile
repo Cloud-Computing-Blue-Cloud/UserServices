@@ -16,4 +16,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Run the web service on container startup.
 # Cloud Run expects the container to listen on $PORT (default 8080)
-CMD exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}
+CMD exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-5004}

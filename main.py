@@ -31,7 +31,7 @@ app = FastAPI(
     ),
 )
 
-port = int(os.environ.get("FASTAPIPORT", 8001))
+port = int(os.environ.get("FASTAPIPORT", 5004))
 
 # In-memory store (same pattern as your Books & Authors code)
 users: Dict[int, UserRead] = {}
