@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 
 from fastapi import FastAPI, HTTPException, Query, status, Depends, Request
 from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from models.user import (
     UserCreate,
@@ -35,6 +36,14 @@ app = FastAPI(
         "Manages user profiles including first name, last name, email, and authentication. "
         "Supports user registration, retrieval, updates, and soft deletion."
     ),
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Cloud Run uses PORT, fallback to FASTAPIPORT for local development
