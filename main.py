@@ -13,13 +13,19 @@ from models.user import (
     UserRead,
     UserUpdate,
 )
+from models.db import User as DBUser
+from database import get_db, engine, Base
 
 from datetime import datetime
 from auth.jwt_utils import create_access_token, get_password_hash
 from auth.oauth_config import get_google_oauth_flow, exchange_code_for_token, get_user_info
 from auth.dependencies import get_current_user
+from dotenv import load_dotenv
 
 load_dotenv()
+
+# Create tables
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="User Service",
@@ -33,10 +39,6 @@ app = FastAPI(
 
 # Cloud Run uses PORT, fallback to FASTAPIPORT for local development
 port = int(os.environ.get("PORT", os.environ.get("FASTAPIPORT", 5004)))
-
-# In-memory store (same pattern as your Books & Authors code)
-users: Dict[int, UserRead] = {}
-next_user_id: int = 1
 
 
 # ----------------------- USERS -----------------------
@@ -52,29 +54,29 @@ def list_users(
         None, description="Case-insensitive substring match on email"
     ),
     is_deleted: Optional[bool] = Query(None, description="Filter by deletion status"),
+    db: Session = Depends(get_db),
 ) -> List[UserRead]:
-    vals = list(users.values())
+    q = db.query(DBUser)
 
     if first_name is not None:
-        fn = first_name.lower()
-        vals = [u for u in vals if fn in u.first_name.lower()]
+        q = q.filter(DBUser.first_name.ilike(f"%{first_name}%"))
     if last_name is not None:
-        ln = last_name.lower()
-        vals = [u for u in vals if u.last_name and ln in u.last_name.lower()]
+        q = q.filter(DBUser.last_name.ilike(f"%{last_name}%"))
     if email is not None:
-        e = email.lower()
-        vals = [u for u in vals if e in u.email.lower()]
+        q = q.filter(DBUser.email.ilike(f"%{email}%"))
     if is_deleted is not None:
-        vals = [u for u in vals if u.is_deleted == is_deleted]
+        q = q.filter(DBUser.is_deleted == is_deleted)
 
-    return vals
+    users = q.all()
+    return [UserRead(**u.to_dict()) for u in users]
 
 
 @app.get("/users/{user_id}", response_model=UserRead, summary="Get detailed user info")
-def get_user(user_id: int) -> UserRead:
-    if user_id not in users:
+def get_user(user_id: int, db: Session = Depends(get_db)) -> UserRead:
+    user = db.query(DBUser).filter(DBUser.user_id == user_id).first()
+    if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return users[user_id]
+    return UserRead(**user.to_dict())
 
 
 @app.post(
@@ -83,28 +85,23 @@ def get_user(user_id: int) -> UserRead:
     status_code=status.HTTP_201_CREATED,
     summary="Register a new user",
 )
-def create_user(body: UserCreate) -> UserRead:
-    global next_user_id
-
+def create_user(body: UserCreate, db: Session = Depends(get_db)) -> UserRead:
     # Check if email already exists
-    for user in users.values():
-        if user.email == body.email and not user.is_deleted:
-            raise HTTPException(status_code=400, detail="Email already exists")
+    existing_user = db.query(DBUser).filter(DBUser.email == body.email, DBUser.is_deleted == False).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already exists")
 
-    user = UserRead(
-        user_id=next_user_id,
+    new_user = DBUser(
         first_name=body.first_name,
         last_name=body.last_name,
         email=body.email,
         password_hash=body.password_hash,
         is_deleted=False,
-        deleted_at=None,
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
     )
-    users[next_user_id] = user
-    next_user_id += 1
-    return user
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return UserRead(**new_user.to_dict())
 
 
 @app.put(
@@ -112,26 +109,33 @@ def create_user(body: UserCreate) -> UserRead:
     response_model=UserRead,
     summary="Update user information (requires JWT)",
 )
-def update_user(user_id: int, body: UserUpdate, current_user: dict = Depends(get_current_user)) -> UserRead:
-    if user_id not in users:
+def update_user(user_id: int, body: UserUpdate, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)) -> UserRead:
+    user = db.query(DBUser).filter(DBUser.user_id == user_id).first()
+    if not user:
         raise HTTPException(status_code=404, detail="User not found")
-
-    user = users[user_id]
 
     if user.is_deleted:
         raise HTTPException(status_code=400, detail="Cannot update deleted user")
 
     # Check if email already exists (if email is being updated)
     if body.email is not None and body.email != user.email:
-        for u in users.values():
-            if u.email == body.email and not u.is_deleted and u.user_id != user_id:
-                raise HTTPException(status_code=400, detail="Email already exists")
+        existing_user = db.query(DBUser).filter(
+            DBUser.email == body.email,
+            DBUser.is_deleted == False,
+            DBUser.user_id != user_id
+        ).first()
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Email already exists")
 
     # Update only provided fields
     update_data = body.model_dump(exclude_unset=True)
-    updated_user = user.model_copy(update={**update_data, "updated_at": datetime.now()})
-    users[user_id] = updated_user
-    return updated_user
+    for key, value in update_data.items():
+        setattr(user, key, value)
+
+    user.updated_at = datetime.now() # Update updated_at timestamp
+    db.commit()
+    db.refresh(user)
+    return UserRead(**user.to_dict())
 
 
 @app.delete(
@@ -139,24 +143,19 @@ def update_user(user_id: int, body: UserUpdate, current_user: dict = Depends(get
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Soft delete a user (requires JWT)",
 )
-def delete_user(user_id: int, current_user: dict = Depends(get_current_user)):
-    if user_id not in users:
+def delete_user(user_id: int, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    user = db.query(DBUser).filter(DBUser.user_id == user_id).first()
+    if not user:
         raise HTTPException(status_code=404, detail="User not found")
-
-    user = users[user_id]
 
     if user.is_deleted:
         raise HTTPException(status_code=400, detail="User already deleted")
 
     # Soft delete
-    updated_user = user.model_copy(
-        update={
-            "is_deleted": True,
-            "deleted_at": datetime.now(),
-            "updated_at": datetime.now(),
-        }
-    )
-    users[user_id] = updated_user
+    user.is_deleted = True
+    user.deleted_at = datetime.now()
+    user.updated_at = datetime.now()
+    db.commit()
     return None
 
 
@@ -172,7 +171,7 @@ def google_login():
 
 
 @app.get("/auth/google/callback", summary="Google OAuth2 callback")
-async def google_callback(code: str):
+async def google_callback(code: str, db: Session = Depends(get_db)):
     try:
         token_data = await exchange_code_for_token(code)
         user_info = await get_user_info(token_data["access_token"])
@@ -181,29 +180,21 @@ async def google_callback(code: str):
         first_name = user_info.get("given_name", "")
         last_name = user_info.get("family_name", "")
 
-        existing_user = None
-        for user in users.values():
-            if user.email == email and not user.is_deleted:
-                existing_user = user
-                break
+        # Check if user exists in DB
+        user = db.query(DBUser).filter(DBUser.email == email, DBUser.is_deleted == False).first()
 
-        if not existing_user:
-            global next_user_id
-            user = UserRead(
-                user_id=next_user_id,
+        if not user:
+            # Create new user
+            user = DBUser(
                 first_name=first_name,
                 last_name=last_name,
                 email=email,
                 password_hash="oauth_google",
                 is_deleted=False,
-                deleted_at=None,
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
             )
-            users[next_user_id] = user
-            next_user_id += 1
-        else:
-            user = existing_user
+            db.add(user)
+            db.commit()
+            db.refresh(user)
 
         jwt_token = create_access_token(
             data={
@@ -229,21 +220,29 @@ async def google_callback(code: str):
 
 
 @app.post("/auth/token", summary="Get JWT token (for testing)")
-def login_for_token(email: str, password: str):
-    for user in users.values():
-        if user.email == email and not user.is_deleted:
-            jwt_token = create_access_token(
-                data={
-                    "sub": str(user.user_id),
-                    "email": user.email,
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                }
-            )
-            return {
-                "access_token": jwt_token,
-                "token_type": "bearer"
+def login_for_token(email: str, password: str, db: Session = Depends(get_db)):
+    # Find user by email
+    user = db.query(DBUser).filter(DBUser.email == email, DBUser.is_deleted == False).first()
+    
+    if user:
+        # In a real app, verify password hash here. 
+        # For now, we just check if user exists as per previous logic, 
+        # or we could check if password matches password_hash if it wasn't just a placeholder.
+        # Assuming simple check for now to match previous behavior but using DB.
+        
+        jwt_token = create_access_token(
+            data={
+                "sub": str(user.user_id),
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
             }
+        )
+        return {
+            "access_token": jwt_token,
+            "token_type": "bearer"
+        }
+            
     raise HTTPException(status_code=401, detail="Invalid credentials")
 
 
