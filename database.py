@@ -11,11 +11,21 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Database Configuration
-DB_USER = os.getenv("DB_USER", "root")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-DB_HOST = os.getenv("DB_HOST", "34.9.21.229")
-DB_PORT = os.getenv("DB_PORT", "3306")
-DB_NAME = os.getenv("DB_NAME", "users")  # Default to 'users' if not set
+
+if os.getenv("env") == "local":
+    DB_USER = "dev_user"
+    DB_PASSWORD = "password123"
+    DB_HOST = "127.0.0.1"
+    DB_PORT = "3307"
+    DB_NAME = "LookMyShow"
+
+else: 
+    DB_USER = os.getenv("DB_USER", "root")
+    DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+    DB_HOST = os.getenv("DB_HOST", "34.9.21.229")
+    DB_PORT = os.getenv("DB_PORT", "3306")
+    DB_NAME = os.getenv("DB_NAME", "users")  # Default to 'users' if not set
+    print("DB_USER: ", DB_USER)
 
 DATABASE_URI = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
