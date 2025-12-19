@@ -271,27 +271,7 @@ gcloud run deploy user-services \
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REDIRECT_URI` (your frontend callback URL)
 
-## 🎯 Key Features
 
-### Automatic Validation
-```python
-# Pydantic automatically validates all requests
-class UserCreate(BaseModel):
-    first_name: str
-    last_name: str
-    email: EmailStr  # Validates email format
-    password_hash: str
-```
-
-### Soft Deletion
-- Users are never permanently deleted
-- `is_deleted` flag marks deleted users
-- `deleted_at` timestamp tracks deletion time
-- Filtered out by default in queries
-
-### OAuth Code Deduplication
-- In-memory cache prevents processing duplicate OAuth codes
-- Handles cases where callback is called multiple times
 
 ## 🤝 Integration with Other Services
 
